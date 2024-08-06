@@ -59,19 +59,9 @@ css = '''
 st.markdown(css, unsafe_allow_html=True)
 
 left_col, right_col = st.columns(2)
-# left_col, right_col = st.columns([1, 2]) 
 
 load_dotenv()
 groq_api_key = os.getenv("GROQ_API_KEY")
-# API_TOKEN = os.getenv("HF_API_TOKEN")
-
-# openai.api_key = API_TOKEN
-# openai.api_key = "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"
-# openai.api_key = "sk-proj-GZ2uGXjtGqjgX21R4YIeT3BlbkFJUAzrqyOydJHTZzZWCKyB"
-
-# client = Groq(
-#     api_key=os.environ.get("GROQ_API_KEY"),
-# )
 
 pc_api_key = os.getenv("PINECONE_API_KEY ")
 pc = Pinecone(api_key=pc_api_key)
@@ -84,14 +74,6 @@ print("Whisper loaded")
 
 embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
 print("Embeddings Models loaded")
-
-# openai_llm = OpenAI(
-#     api_key=openai.api_key, 
-#     model_name="gpt-3.5-turbo-instruct",  
-#     max_tokens=100,  
-#     temperature=0.7,  
-# )
-# print("Openai_llm loaded")
 
 llm = ChatGroq(
     model="mixtral-8x7b-32768",
@@ -175,17 +157,16 @@ with right_col:
     # connect
     index = pc.Index(name="quickstart1")
 
-    # inserted once
     # inserting embeddings to VDB
-    # for i, row in df.iterrows():
-    #     vector = row['embeddings']
-    #     metadata = {
-    #         "text": row['text'],
-    #         "start_time": row['start_time'],
-    #         "end_time": row['end_time'],
-    #         "duration" : row["duration"]
-    #     }
-    #     index.upsert(vectors=[(str(i), vector, metadata)])
+    for i, row in df.iterrows():
+        vector = row['embeddings']
+        metadata = {
+            "text": row['text'],
+            "start_time": row['start_time'],
+            "end_time": row['end_time'],
+            "duration" : row["duration"]
+        }
+        index.upsert(vectors=[(str(i), vector, metadata)])
 
     # 
     query_text = "So it's another Baltic Cup 22 runs already,  looted by Pakistan in the summer.  He's got a tingle and good call for the Empire to stay outside that line.  That's a slice and it's the catch.  So the Grolmys over and I will watch us strike from England just at the right time.  He was steaming forward and threatening to win the game on his own.  This is a slice in New Deal, a pressure catch and it's taken.  They'll put it in the catcher.  That's a golden wicked.  See what it means to Oymorgan.  of a SNF 24-148-7."
@@ -301,7 +282,6 @@ with right_col:
         
 
     # Chatbot interface
-    # user_input = st.text_input("Ask a question:", key="input_box")
     user_input = st.text_input("Ask a question:", key="input_box", placeholder="Type your message here...", label_visibility='collapsed')
 
     st.session_state.chat_history = []
@@ -399,7 +379,6 @@ st.markdown(
         text-align: left;
         margin-bottom: 10px;
         margin-top: 10px;
-        
     }
     .avatar {
         vertical-align: middle;
