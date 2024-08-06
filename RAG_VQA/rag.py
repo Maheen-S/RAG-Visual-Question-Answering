@@ -58,12 +58,6 @@ import subprocess
 import os
 import tempfile
 
-# In[11]:
-
-
-# device = "cuda" if torch.cuda.is_available() else "cpu"
-# pipe_whisper = pipeline("automatic-speech-recognition", model="openai/whisper-base", device=device)
-
 
 # In[12]:
 
@@ -78,10 +72,6 @@ def extract_audio_from_video(video_path, audio_output_path):
         print(f"Audio successfully extracted to {audio_output_path}")
     except subprocess.CalledProcessError as e:
         print(f"An error occurred: {e.stderr.decode()}")
-
-
-    # print(f"Time taken to extract_audio_from_video {t2 - t1}")
-    # ffmpeg.input(video_path).output(audio_output_path).run()
 
 
 # In[13]:
@@ -287,17 +277,8 @@ def extract_embeddings(df, embeddings):
         all_embeddings.append(embedding)
     return all_embeddings
 
-# df['embeddings'] = extract_embeddings(df)
-
-
 
 # # VDB - Pinecone
-
-# In[27]:
-
-
-# pc = Pinecone(api_key="9bf699ce-092d-48a9-8526-a219a8e3d509")
-
 
 # In[ ]:
 
@@ -382,30 +363,6 @@ def extract_embeddings(df, embeddings):
 #     result = index.fetch(ids=[match['id']])
 #     metadata = result['vectors'][match['id']]['metadata']
 #     print(f"Text: {metadata['text']}, Start Time: {metadata['start_time']}, End Time: {metadata['end_time']}")
-
-# In[ ]:
-
-# # LLM - OpenAI
-
-# In[33]:
-
-
-# openai.api_key = "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"
-
-
-# In[34]:
-
-
-# openai_llm = OpenAI(
-#     api_key=openai.api_key, 
-#     model_name="gpt-3.5-turbo-instruct",  
-#     max_tokens=100,  
-#     temperature=0.7,  
-# )
-
-
-# In[ ]:
-# ## Conversation Chain with docs 
 
 # In[35]:
 
