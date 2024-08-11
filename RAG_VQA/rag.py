@@ -23,7 +23,7 @@ import librosa
 import noisereduce as nr
 import soundfile as sf
 import pandas as pd
-
+import cv2
 
 # In[8]:
 
@@ -45,7 +45,7 @@ from langchain.memory import ConversationBufferMemory
 from langchain.vectorstores.base import VectorStoreRetriever
 from langchain.schema import Document
 from pydantic import Field
-from typing import List
+from typing import Any, List
 
 
 # In[10]:
@@ -58,7 +58,11 @@ import subprocess
 import os
 import tempfile
 
+import clip
+from transformers import CLIPProcessor, CLIPModel
+from PIL import Image
 
+from langchain.schema import BaseRetriever
 # In[12]:
 
 
@@ -269,13 +273,136 @@ def concatenate_sentences(transcription_data, target_duration=55):
 
 # In[24]:
 
+def pad_embedding(embedding, target_dim=512):
+    # Convert to numpy array if it's not already
+    if not isinstance(embedding, np.ndarray):
+        embedding = np.array(embedding)
+    
+    # Calculate the padding needed
+    current_dim = embedding.shape[-1]
+    if current_dim < target_dim:
+        padding = np.zeros(target_dim - current_dim)
+        padded_embedding = np.concatenate([embedding, padding])
+    else:
+        padded_embedding = embedding
+    
+    return padded_embedding
 
 def extract_embeddings(df, embeddings):
     all_embeddings = []
     for text in df["text"]:
+        # Extract the embedding
         embedding = embeddings.embed_query(text)
-        all_embeddings.append(embedding)
+        # Pad the embedding to the desired length (512)
+        padded_embedding = pad_embedding(embedding, target_dim=512)
+        all_embeddings.append(padded_embedding)
+    
     return all_embeddings
+
+# def extract_embeddings(df, embeddings):
+#     all_embeddings = []
+#     for text in df["text"]:
+#         embedding = embeddings.embed_query(text)
+#         all_embeddings.append(embedding)
+#     return all_embeddings
+
+# def extract_frames_and_compute_embeddings(video_path, model, processor):
+#     # Initialize video capture
+#     cap = cv2.VideoCapture(video_path)
+#     fps = cap.get(cv2.CAP_PROP_FPS)
+#     frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+#     duration = frame_count / fps
+#     frames_data = []
+    
+#     frame_no = 0
+#     second_count = 0
+#     while cap.isOpened():
+#         ret, frame = cap.read()
+#         if not ret:
+#             break
+
+#         # Calculate timestamp
+#         timestamp = second_count
+#         if frame_no % int(fps) == 0:
+#             # Convert frame to PIL Image
+#             img = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+#             # Preprocess the image for CLIP
+#             inputs = processor(images=img, return_tensors="pt")
+#             # Compute CLIP embeddings
+#             with torch.no_grad():
+#                 outputs = model.get_image_features(**inputs)
+#                 embeddings = outputs.cpu().numpy().tolist()
+            
+#             frames_data.append({
+#                 "frame_no": frame_no,
+#                 "timestamp": timestamp,
+#                 "image_embedding": embeddings[0]
+#             })
+#             second_count += 1
+#         frame_no += 1
+#     cap.release()
+#     return frames_data
+def extract_frames_and_compute_embeddings(video_path, model, processor):
+    if video_path is None:
+        raise ValueError("No video path provided. Please ensure that the video was uploaded correctly.")
+
+    # Initialize video capture
+    cap = cv2.VideoCapture(video_path)
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+
+    # Check for zero fps
+    if fps == 0:
+        raise ValueError(f"Frames per second (fps) is zero for the video: {video_path}")
+
+    duration = frame_count / fps
+    frames_data = []
+    
+    frame_no = 0
+    second_count = 0
+    while cap.isOpened():
+        ret, frame = cap.read()
+        if not ret:
+            break
+
+        # Calculate timestamp
+        timestamp = second_count
+        if frame_no % int(fps) == 0:
+            # Convert frame to PIL Image
+            img = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+            # Preprocess the image for CLIP
+            inputs = processor(images=img, return_tensors="pt")
+            # Compute CLIP embeddings
+            with torch.no_grad():
+                outputs = model.get_image_features(**inputs)
+                embeddings = outputs.cpu().numpy().tolist()
+            
+            frames_data.append({
+                "frame_no": frame_no,
+                "timestamp": timestamp,
+                "image_embedding": embeddings[0]
+            })
+            second_count += 1
+        frame_no += 1
+    cap.release()
+    return frames_data
+
+
+def chunk_frames_by_time(frames_data, df_times):
+    chunks = []
+    for index, row in df_times.iterrows():
+        start_time = row["start_time"]
+        end_time = row["end_time"]
+        text = row["text"]
+        
+        chunk = [frame for frame in frames_data if start_time <= frame["timestamp"] <= end_time]
+        chunks.append({
+            "text": text,
+            "start_time": start_time,
+            "end_time": end_time,
+            "frames": chunk
+        })
+    return chunks
 
 
 # # VDB - Pinecone
@@ -364,8 +491,32 @@ def extract_embeddings(df, embeddings):
 #     metadata = result['vectors'][match['id']]['metadata']
 #     print(f"Text: {metadata['text']}, Start Time: {metadata['start_time']}, End Time: {metadata['end_time']}")
 
+def hybrid_scale(dense, sparse, alpha: float):
+    if alpha < 0 or alpha > 1:
+        raise ValueError("Alpha must be between 0 and 1")
+    
+    if isinstance(sparse, dict):
+        # scale sparse and dense vectors to create hybrid search vecs
+        hsparse = {
+            'indices': sparse['indices'],
+            'values':  [v * (1 - alpha) for v in sparse['values']]
+        }
+    else:
+        # If sparse is a list, scale it directly
+        hsparse = sparse  # Modify this if you need to adjust the format
+    
+    hdense = [v * alpha for v in dense]
+    
+    return hdense, hsparse
+
+
 # In[35]:
 
+def convert_to_sparse(vector):
+    """Convert a dense vector to a sparse representation."""
+    indices = [i for i, value in enumerate(vector) if value != 0]
+    values = [value for value in vector if value != 0]
+    return {'indices': indices, 'values': values}
 
 class CustomRetriever(VectorStoreRetriever):
     vectorstore: VectorStoreRetriever
@@ -384,7 +535,46 @@ class CustomRetriever(VectorStoreRetriever):
 
 # In[36]:
 
+class CustomHybridRetriever(BaseRetriever):
+        index: Any = Field(...) 
+        dense_embedder: Any = Field(...) 
+        sparse_embedder: Any = Field(...)  
+        alpha: float = Field(0.5)  
 
+        def __init__(self, index, dense_embedder, sparse_embedder, alpha=0.5):
+            super().__init__(index=index, dense_embedder=dense_embedder, sparse_embedder=sparse_embedder, alpha=alpha)
+            self.index = index
+            self.dense_embedder = dense_embedder
+            self.sparse_embedder = sparse_embedder
+            self.alpha = alpha
+            
+        def _get_relevant_documents(self, query: str) -> List[Document]:
+            # Create dense and sparse query vectors
+            dense_vector = self.dense_embedder.encode(query).tolist()
+            sparse_vector = self.sparse_embedder.embed_query(query)
+
+            # Convert sparse_vector to the required format if it's not already in sparse format
+            if isinstance(sparse_vector, list):
+                sparse_vector = convert_to_sparse(sparse_vector)
+
+            # Apply hybrid scaling if needed
+            hdense, hsparse = hybrid_scale(dense_vector, sparse_vector, alpha=self.alpha)
+
+            # Query the index with both vectors
+            result = self.index.query(
+                top_k=6,  # Adjust as needed
+                vector=hdense,
+                sparse_vector=hsparse,
+                include_metadata=True
+            )
+
+            # Convert the results to a list of Document objects
+            documents = [
+                Document(page_content=res['metadata']['text'], metadata=res['metadata']) for res in result['matches']
+            ]
+
+            return documents
+        
 # # Define a prompt template
 # prompt_template = """The following is a conversation with an AI assistant.
 # The assistant is helpful, creative, clever, and very friendly.

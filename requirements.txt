@@ -21,3 +21,6 @@ pydantic
 typing
 load_dotenv
 groq==0.9.0
+clip==0.2.0
+open_clip_torch==2.26.1
+opencv-python==4.10.0.84
